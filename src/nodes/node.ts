@@ -54,57 +54,56 @@ export async function node(
     let step = 0;
   
     // Initialisation : envoi des messages aux autres nœuds sans attendre de réponse
-    broadcastMessage(nodeId, N, step, nodeState);
-  
+    if (!nodeState.killed) {
+      broadcastMessage(nodeId, N, step, nodeState);
+  }
+    
     res.send("Initialization complete, waiting for consensus...");
   });
   
   node.post("/message", (req, res) => {
     if (nodeState.killed) {
-      res.status(500).send("Node stopped");
-      return;
+        res.status(500).send("Node stopped");
+        return;
     }
-  
+
     const { step, value } = req.body;
-  
+    console.log(`Node ${nodeId} received message at step ${step} with value`, value);
+
     if (!isFaulty && nodeState.k === step) {
-      receivedMessages.push({ step, value });
+        receivedMessages.push({ step, value });
     }
-  
+
     if (receivedMessages.length === N - 1) {
-      const voteCounts: Record<string, number> = {};
-  
-      receivedMessages.forEach(({ value }) => {
-        if (value !== "?") {
-          voteCounts[value] = (voteCounts[value] || 0) + 1;
-        }
-      });
-  
-      const majorityValue = Object.keys(voteCounts).length
-        ? Object.keys(voteCounts).reduce((a, b) =>
-            voteCounts[a] > voteCounts[b] ? a : b
-          )
-        : null;
-  
+        console.log(`Node ${nodeId} processing messages for step ${step}`, receivedMessages);
+        
+        const voteCounts: Record<string, number> = {};
+
+        receivedMessages.forEach(({ value }) => {
+            if (value !== "?") {
+                voteCounts[value] = (voteCounts[value] || 0) + 1;
+            }
+        });
+
+        const majorityValue = Object.keys(voteCounts).length
+            ? Object.keys(voteCounts).reduce((a, b) =>
+                voteCounts[a] > voteCounts[b] ? a : b
+            )
+            : null;
+
         if (majorityValue !== null && voteCounts[majorityValue] > (N - F) / 2) {
-          nodeState.x = parseInt(majorityValue, 10) as Value;
-          nodeState.decided = true;
+            nodeState.x = parseInt(majorityValue, 10) as Value;
+            nodeState.decided = true;
         } else {
-          nodeState.x = Math.random() > 0.5 ? 0 : 1; // Choix aléatoire si pas de majorité
-          }
-      
-  
-      // On passe à l'étape suivante
-      if (nodeState.k !== null) {
-        nodeState.k++;
-      } else {
-        nodeState.k = 1; // Initialiser à 1 si null
-      }
+            nodeState.x = Math.random() > 0.5 ? 0 : 1; // Randomisation si pas de majorité
+        }
+
+        nodeState.k = (nodeState.k ?? 0) + 1;
+        receivedMessages = []; // Réinitialisation des messages pour le tour suivant
     }
-  
+
     res.sendStatus(200);
-  });
-  
+});
 
   node.get("/stop", (req, res) => {
     nodeState.killed = true;
